@@ -34,9 +34,9 @@ clean separation of concerns, explicit interfaces, reproducible scripts, and an 
 ## 2. Current Capabilities (MVP Scope)
 
 ### API
-- `/health` — returns service status  
-- `/query` — accepts natural language queries, returns structured placeholder answers  
-- `/index` — scaffolding for index rebuild workflows  
+- `/health` returns service status  
+- `/query` accepts natural language queries, returns structured placeholder answers  
+- `/index` is scaffolding for index rebuild workflows  
 - Automatic request ID propagation  
 - Per-request latency tracking  
 
@@ -50,8 +50,8 @@ clean separation of concerns, explicit interfaces, reproducible scripts, and an 
 - Error-safe loading (`loader.py`)  
 
 ### Scripts
-- `scripts/build_index.py` — orchestrates ingestion + future embedding/index building  
-- `scripts/reprocess_data.py` — resets processed directory  
+- `scripts/build_index.py` orchestrates ingestion + future embedding/index building  
+- `scripts/reprocess_data.py` resets processed directory  
 
 ### Tests
 - API contract tests ensuring:
@@ -64,7 +64,7 @@ clean separation of concerns, explicit interfaces, reproducible scripts, and an 
 ## 3. Architectural Intent
 
 This MVP establishes the **blueprint** for a full legal RAG pipeline.  
-All subsystems exist in their production form — only logic is missing, by design.
+All subsystems exist in their production form. Only the logic is missing, by design.
 
 ### Retrieval Layer (`retrieval/`)
 - `bm25.py`, `faiss_store.py`, `hybrid.py`  
@@ -155,7 +155,7 @@ embedding + retrieval logic.
 
 ## 8. Current Status (MVP Reality)
 
-This repository is in **Phase 1 — Architectural Scaffolding**.
+This repository is in **Phase 1, Architectural Scaffolding**.
 
 Functional components intentionally remain unimplemented:
 
@@ -251,4 +251,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Cesar Augusto
-Founder & CEO, ORCA
+AI Systems Engineer, Mycellium Lab
