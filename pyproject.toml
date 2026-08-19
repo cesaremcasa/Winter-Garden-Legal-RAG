@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Local-first legal document retrieval with grounded citations"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Cesar Augusto" }]
 dependencies = [
   "fastapi>=0.115,<1",
@@ -16,6 +16,10 @@ dependencies = [
   "PyYAML>=6,<7",
   "uvicorn[standard]>=0.30,<1",
 ]
+
+[project.scripts]
+winter-garden-build-index = "scripts.build_index:main"
+winter-garden-serve = "api.cli:main"
 
 [dependency-groups]
 dev = [
@@ -29,7 +33,22 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["api", "config", "llm", "parsers", "retrieval", "utils", "validators"]
+packages = [
+  "api",
+  "config",
+  "data",
+  "data.fixtures",
+  "llm",
+  "parsers",
+  "retrieval",
+  "scripts",
+  "utils",
+  "validators",
+]
+
+[tool.setuptools.package-data]
+config = ["config.yaml"]
+"data.fixtures" = ["*.html", "*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

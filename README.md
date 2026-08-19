@@ -27,6 +27,28 @@ curl -s http://127.0.0.1:8000/query \
   -d '{"query":"What are the public counter hours for a permit application?"}'
 ```
 
+### Wheel install in an empty directory
+
+The wheel bundles `config/config.yaml`, the CC0 fixture, and the two console
+commands. It never writes an index into `site-packages`; relative paths are
+resolved from the runtime working directory (or `WGLR_RUNTIME_DIR`), so the
+generated index remains external and disposable:
+
+```bash
+uv build --wheel
+RUNTIME_DIR="$(mktemp -d)"
+uv venv "$RUNTIME_DIR/venv"
+uv pip install --python "$RUNTIME_DIR/venv/bin/python" dist/*.whl
+cd "$RUNTIME_DIR"
+winter-garden-build-index
+winter-garden-serve --host 127.0.0.1 --port 8000
+```
+
+Use `WGLR_SOURCE_PATH` for authorized operator documents and
+`WGLR_INDEX_PATH` for an explicit external index location. With no source
+override in an empty directory, `winter-garden-build-index` reads the bundled
+CC0 fixture through `importlib.resources`.
+
 The committed fixture is under `data/fixtures/`. To index documents you are
 authorized to use, place PDF or HTML files in a local source directory, update
 `data_path` in `config/config.yaml`, and run the build command again. Basic
@@ -68,12 +90,18 @@ uv run ruff check .
 uv run mypy api config llm parsers retrieval scripts validators
 uv run pytest -q
 uv run pip-audit
-uv run detect-secrets scan --all-files
+uv run detect-secrets scan --all-files \
+  --exclude-files '(^|/)(\.venv|data/index|\.mypy_cache|\.pytest_cache|\.ruff_cache)(/|$)' \
+  --exclude-files '\.(png|jpg|jpeg|gif)$' \
+  --exclude-files 'uv\.lock$'
+uv build --wheel
 ```
 
-CI runs the same lint, type-check, tests, dependency audit, and secret scan.
-The index is intentionally rebuilt from the fixture in tests rather than
-depending on machine-specific paths.
+CI runs the same lint, type-check, tests, dependency audit, and secret scan,
+then verifies wheel contents and performs a clean-venv HTTP E2E: build the
+packaged fixture index in an empty directory, start `winter-garden-serve`, and
+prove `/health` plus a grounded `/query`. The index is intentionally rebuilt
+from the fixture rather than depending on machine-specific paths.
 
 ## Provenance and license
 

@@ -16,7 +16,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.loader import load_config
+from config.loader import load_config, resolve_runtime_path, source_path_for_config
 from retrieval.index_manager import IndexBuilder
 from utils.logger import get_logger
 
@@ -30,22 +30,21 @@ def build_index(config_path: str | None = None):
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
         raise
-    project_root = Path(__file__).resolve().parents[1]
-    def resolve(value: str) -> Path:
-        path = Path(value).expanduser()
-        return path if path.is_absolute() else project_root / path
-
-    builder = IndexBuilder(
-        resolve(str(config.get("data_path", "./data/fixtures/"))),
-        resolve(str(config.get("index_path", "./data/index/"))),
-        chunk_size=int(config.get("chunk_size", 800)),
-        chunk_overlap=int(config.get("chunk_overlap", 120)),
-        max_file_bytes=int(config.get("max_file_bytes", 5_000_000)),
-        max_pages=int(config.get("max_pages", 100)),
-        max_text_chars=int(config.get("max_text_chars", 1_000_000)),
-        embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
+    index_path = resolve_runtime_path(
+        str(config.get("index_path", "./data/index/")), env_var="WGLR_INDEX_PATH"
     )
-    result = builder.build()
+    with source_path_for_config(str(config.get("data_path", "./data/fixtures/"))) as source_path:
+        builder = IndexBuilder(
+            source_path,
+            index_path,
+            chunk_size=int(config.get("chunk_size", 800)),
+            chunk_overlap=int(config.get("chunk_overlap", 120)),
+            max_file_bytes=int(config.get("max_file_bytes", 5_000_000)),
+            max_pages=int(config.get("max_pages", 100)),
+            max_text_chars=int(config.get("max_text_chars", 1_000_000)),
+            embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
+        )
+        result = builder.build()
     logger.info(
         "index build completed",
         extra={"documents": result.document_count, "chunks": result.chunk_count},

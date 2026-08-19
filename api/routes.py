@@ -3,13 +3,12 @@ from __future__ import annotations
 import os
 import secrets
 import time
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from config.loader import load_config
+from config.loader import load_config, resolve_runtime_path, source_path_for_config
 from llm.client import ABSTENTION, LLMClient, LLMProvider
 from retrieval.errors import IndexCorruptionError
 from retrieval.index_manager import IndexBuilder, IndexManager
@@ -17,7 +16,6 @@ from utils.logger import generate_request_id, get_logger
 from validators.grounding import validate_answer
 
 logger = get_logger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 app = FastAPI(title="Winter Garden Legal RAG API", version="0.1.0")
 
 # Load config
@@ -153,29 +151,28 @@ async def rebuild_index(
     }
 
 
-def _resolve_config_path(value: str) -> Path:
-    path = Path(value).expanduser()
-    return path if path.is_absolute() else PROJECT_ROOT / path
-
-
 def _load_index_manager() -> IndexManager:
     return IndexManager(
-        _resolve_config_path(str(config.get("index_path", "./data/index/"))),
+        resolve_runtime_path(
+            str(config.get("index_path", "./data/index/")), env_var="WGLR_INDEX_PATH"
+        ),
         embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
     )
 
 
 def _build_index():
-    source_path = _resolve_config_path(str(config.get("data_path", "./data/fixtures/")))
-    index_path = _resolve_config_path(str(config.get("index_path", "./data/index/")))
-    builder = IndexBuilder(
-        source_path,
-        index_path,
-        chunk_size=int(config.get("chunk_size", 800)),
-        chunk_overlap=int(config.get("chunk_overlap", 120)),
-        max_file_bytes=int(config.get("max_file_bytes", 5_000_000)),
-        max_pages=int(config.get("max_pages", 100)),
-        max_text_chars=int(config.get("max_text_chars", 1_000_000)),
-        embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
+    index_path = resolve_runtime_path(
+        str(config.get("index_path", "./data/index/")), env_var="WGLR_INDEX_PATH"
     )
-    return builder.build()
+    with source_path_for_config(str(config.get("data_path", "./data/fixtures/"))) as source_path:
+        builder = IndexBuilder(
+            source_path,
+            index_path,
+            chunk_size=int(config.get("chunk_size", 800)),
+            chunk_overlap=int(config.get("chunk_overlap", 120)),
+            max_file_bytes=int(config.get("max_file_bytes", 5_000_000)),
+            max_pages=int(config.get("max_pages", 100)),
+            max_text_chars=int(config.get("max_text_chars", 1_000_000)),
+            embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
+        )
+        return builder.build()
