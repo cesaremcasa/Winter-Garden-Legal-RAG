@@ -10,16 +10,13 @@ PORT=${1:-${PORT:-8000}}
 
 echo "Starting Winter Garden Legal RAG API on port $PORT..."
 
-# Check if uvicorn is installed
-if ! command -v uvicorn &> /dev/null; then
-    echo "Error: uvicorn not found. Install it with: pip install uvicorn"
-    exit 1
-fi
-
 # Check if config exists
 if [ ! -f "config/config.yaml" ]; then
     echo "Warning: config/config.yaml not found"
 fi
 
-# Start API
-uvicorn api.routes:app --reload --host 0.0.0.0 --port "$PORT"
+# Start API (uv keeps the lockfile and environment reproducible).
+if command -v uv >/dev/null 2>&1; then
+    exec uv run uvicorn api.routes:app --host "${HOST:-127.0.0.1}" --port "$PORT"
+fi
+exec uvicorn api.routes:app --host "${HOST:-127.0.0.1}" --port "$PORT"

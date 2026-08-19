@@ -1,5 +1,5 @@
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from api.routes import app
 
@@ -39,14 +39,35 @@ def test_query_with_request_id():
     assert response.json()["request_id"] == test_id
 
 
-def test_index_endpoint():
-    """Test index rebuild endpoint."""
-    response = client.post("/index")
+def test_query_returns_grounded_fixture_answer():
+    response = client.post(
+        "/query",
+        json={"query": "What are the public counter hours for a permit application?"},
+    )
     assert response.status_code == 200
-    assert "status" in response.json()
-    assert "request_id" in response.json()
+    data = response.json()
+    assert data["grounded"] is True
+    assert data["citations"]
+    citation = data["citations"][0]
+    assert {"document", "source", "chunk", "excerpt"} <= citation.keys()
 
 
-# TODO: Add integration tests
-# TODO: Add tests for retrieval modules
-# TODO: Add tests for validators
+def test_query_abstains_without_evidence():
+    response = client.post("/query", json={"query": "What is the speed limit on the moon?"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["abstained"] is True
+    assert data["grounded"] is False
+    assert data["citations"] == []
+
+
+def test_rebuild_requires_admin_token(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("WGLR_ADMIN_TOKEN", raising=False)
+    response = client.post("/rebuild-index")
+    assert response.status_code == 503
+
+    monkeypatch.setenv("WGLR_ADMIN_TOKEN", "test-only-token")
+    assert client.post("/rebuild-index", headers={"X-Admin-Token": "wrong"}).status_code == 401
+    response = client.post("/rebuild-index", headers={"X-Admin-Token": "test-only-token"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"

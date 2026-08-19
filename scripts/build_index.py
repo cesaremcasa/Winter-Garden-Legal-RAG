@@ -17,58 +17,54 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.loader import load_config
-from parsers.pdf_parser import PDFParser
-from retrieval.bm25 import BM25Retrieval
-from retrieval.faiss_store import FaissRetrieval
+from retrieval.index_manager import IndexBuilder
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-def main():
-    """Main index building function."""
-    logger.info("Starting index build process")
-    
-    # Load configuration
+def build_index(config_path: str | None = None):
+    """Build both local retrieval indexes from configured PDF/HTML sources."""
     try:
-        config = load_config()
+        config = load_config(config_path or "config/config.yaml")
     except Exception as e:
         logger.error(f"Failed to load config: {e}")
-        sys.exit(1)
-    
-    data_path = config.get("data_path", "./data/raw_pdfs/")
-    faiss_index_path = config.get("faiss_index_path", "./data/index/faiss/")
-    bm25_index_path = config.get("bm25_index_path", "./data/index/bm25/")
-    chunk_size = config.get("chunk_size", 500)
-    chunk_overlap = config.get("chunk_overlap", 50)
-    
-    logger.info(f"Configuration loaded: data_path={data_path}")
-    
-    # Create output directories
-    Path(faiss_index_path).mkdir(parents=True, exist_ok=True)
-    Path(bm25_index_path).mkdir(parents=True, exist_ok=True)
-    
-    # Parse documents
-    logger.info("Parsing documents...")
-    parser = PDFParser(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    
-    # TODO: Implement parsing
-    # chunks = parser.parse_directory(data_path)
-    # logger.info(f"Parsed {len(chunks)} chunks")
-    
-    # Build FAISS index
-    logger.info("Building FAISS index...")
-    faiss_retriever = FaissRetrieval(faiss_index_path)
-    # TODO: Build and save FAISS index
-    # faiss_retriever.build_index(embeddings, chunks, faiss_index_path)
-    
-    # Build BM25 index
-    logger.info("Building BM25 index...")
-    bm25_retriever = BM25Retrieval(bm25_index_path)
-    # TODO: Build and save BM25 index
-    # bm25_retriever.build_index(documents, bm25_index_path)
-    
-    logger.info("Index build completed successfully")
+        raise
+    project_root = Path(__file__).resolve().parents[1]
+    def resolve(value: str) -> Path:
+        path = Path(value).expanduser()
+        return path if path.is_absolute() else project_root / path
+
+    builder = IndexBuilder(
+        resolve(str(config.get("data_path", "./data/fixtures/"))),
+        resolve(str(config.get("index_path", "./data/index/"))),
+        chunk_size=int(config.get("chunk_size", 800)),
+        chunk_overlap=int(config.get("chunk_overlap", 120)),
+        max_file_bytes=int(config.get("max_file_bytes", 5_000_000)),
+        max_pages=int(config.get("max_pages", 100)),
+        max_text_chars=int(config.get("max_text_chars", 1_000_000)),
+        embedding_model=str(config.get("embedding_model_name", "local-hash-384")),
+    )
+    result = builder.build()
+    logger.info(
+        "index build completed",
+        extra={"documents": result.document_count, "chunks": result.chunk_count},
+    )
+    return result
+
+
+def main() -> None:
+    """CLI entrypoint."""
+
+    try:
+        result = build_index()
+    except Exception as exc:
+        logger.error("index build failed")
+        raise SystemExit(1) from exc
+    print(
+        f"Built {result.chunk_count} chunks from {result.document_count} documents "
+        f"at {result.index_path}"
+    )
 
 
 if __name__ == "__main__":
