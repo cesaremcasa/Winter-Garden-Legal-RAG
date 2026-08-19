@@ -1,254 +1,112 @@
-# Winter Garden Legal RAG Backend (MVP Architecture)
+# Winter Garden Legal RAG
 
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-Framework-green)
-![Status](https://img.shields.io/badge/Status-MVP-orange)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+Small, local-first legal retrieval service for a reproducible v0.1.0 demo. The
+core path parses authorized PDF/HTML sources, builds a persistent BM25 + local
+hashed-vector index, fuses results with reciprocal rank fusion (RRF), and
+returns extractive answers with verifiable citations. It abstains when the
+retrieved evidence is missing or cannot be grounded.
 
-A modular, architecture-first backend for a **Legal Retrieval-Augmented Generation (RAG)** system built on the *City of Winter Garden, Florida* legal code.
+This is retrieval software, not legal advice. The sample source is synthetic
+and must not be presented as an enacted ordinance.
 
-This MVP focuses on **correct engineering structure**, **clean subsystem boundaries**, and **production-style organization**, serving as a blueprint for how a real legal RAG backend is built.  
-It is intentionally implementation-light so the architecture can be evaluated safely and clearly.
+## Quickstart
 
----
-
-## 1. Overview
-
-The system defines all essential layers required in a modern RAG backend:
-
-- FastAPI service (`/query`, `/index`, `/health`)
-- Modular retrieval subsystem (BM25, FAISS, Hybrid)
-- Parsing layer for PDFs and HTML
-- Configurable LLM client wrapper
-- Grounding & citation validation stubs
-- Structured JSON logging with request tracing
-- Centralized YAML configuration
-- Operational scripts for indexing & data processing
-- API contract tests (using FastAPI TestClient)
-
-This project demonstrates **engineering discipline**, not raw capability:
-clean separation of concerns, explicit interfaces, reproducible scripts, and an extendable design.
-
----
-
-## 2. Current Capabilities (MVP Scope)
-
-### API
-- `/health` returns service status  
-- `/query` accepts natural language queries, returns structured placeholder answers  
-- `/index` is scaffolding for index rebuild workflows  
-- Automatic request ID propagation  
-- Per-request latency tracking  
-
-### Logging
-- Shared JSON structured logger  
-- Fields: `timestamp`, `level`, `message`, `request_id`, `latency`, `query`  
-
-### Configuration
-- Central `config/config.yaml`  
-- Defines paths, models, retrieval parameters, and API settings  
-- Error-safe loading (`loader.py`)  
-
-### Scripts
-- `scripts/build_index.py` orchestrates ingestion + future embedding/index building  
-- `scripts/reprocess_data.py` resets processed directory  
-
-### Tests
-- API contract tests ensuring:
-  - Endpoint stability  
-  - Header propagation  
-  - Response structure  
-
----
-
-## 3. Architectural Intent
-
-This MVP establishes the **blueprint** for a full legal RAG pipeline.  
-All subsystems exist in their production form. Only the logic is missing, by design.
-
-### Retrieval Layer (`retrieval/`)
-- `bm25.py`, `faiss_store.py`, `hybrid.py`  
-- Interfaces defined  
-- Methods stubbed for future:
-  - Sparse BM25 retrieval  
-  - Dense FAISS vector search  
-  - Hybrid ranking/fusion strategies  
-
-### Parsing Layer (`parsers/`)
-- `pdf_parser.py`, `html_parser.py`  
-- Directory traversal + signatures defined  
-- Extraction & chunking are TODO  
-
-### LLM Layer (`llm/client.py`)
-- Provider enum (OpenAI, Anthropic, local models)  
-- Unified LLM interface  
-- Stubbed answer + citation generation  
-
-### Validation Layer (`validators/grounding.py`)
-- Grounding interface  
-- Citation check hook  
-
-Ready for RAG hallucination prevention once retrieval + LLM integration exist.
-
----
-
-## 4. Project Structure
-
-```
-├── api/                  # FastAPI routes and request models
-├── config/               # YAML config + loader
-├── data/                 # Raw PDFs, processed chunks, index placeholders
-├── llm/                  # LLM client scaffolding
-├── parsers/              # PDF / HTML parsing skeletons
-├── retrieval/            # BM25, FAISS, Hybrid retrieval scaffolding
-├── scripts/              # Index build + data processing orchestration
-├── tests/                # API contract tests
-├── utils/                # JSON structured logging
-├── validators/           # Grounding / citation validation stubs
-└── run_api.sh            # Startup script
-```
-
-This mirrors real production RAG services where each subsystem evolves independently.
-
----
-
-## 5. Installation
-
-Requires **Python 3.10+**.
+Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-pip install -r requirements.txt
+uv sync --group dev
+uv run python scripts/build_index.py
+uv run uvicorn api.routes:app --host 127.0.0.1 --port 8000
 ```
 
----
+Then query the local service:
 
-## 6. Running the API
-
-### Using the startup script
 ```bash
-./run_api.sh 8000
+curl -s http://127.0.0.1:8000/query \
+  -H 'content-type: application/json' \
+  -d '{"query":"What are the public counter hours for a permit application?"}'
 ```
 
-### Using Uvicorn directly
+### Wheel install in an empty directory
+
+The wheel bundles `config/config.yaml`, the CC0 fixture, and the two console
+commands. It never writes an index into `site-packages`; relative paths are
+resolved from the runtime working directory (or `WGLR_RUNTIME_DIR`), so the
+generated index remains external and disposable:
+
 ```bash
-uvicorn api.routes:app --reload --host 0.0.0.0 --port 8000
+uv build --wheel
+RUNTIME_DIR="$(mktemp -d)"
+uv venv "$RUNTIME_DIR/venv"
+uv pip install --python "$RUNTIME_DIR/venv/bin/python" dist/*.whl
+cd "$RUNTIME_DIR"
+winter-garden-build-index
+winter-garden-serve --host 127.0.0.1 --port 8000
 ```
 
----
+Use `WGLR_SOURCE_PATH` for authorized operator documents and
+`WGLR_INDEX_PATH` for an explicit external index location. With no source
+override in an empty directory, `winter-garden-build-index` reads the bundled
+CC0 fixture through `importlib.resources`.
 
-## 7. Reprocessing and Index Building
+The committed fixture is under `data/fixtures/`. To index documents you are
+authorized to use, place PDF or HTML files in a local source directory, update
+`data_path` in `config/config.yaml`, and run the build command again. Basic
+limits are configured for file bytes, PDF pages, extracted characters, chunk
+size, and overlap.
 
-### Reset processed data
+## API contract
+
+- `GET /health` keeps the original `{"status":"ok"}` response.
+- `POST /query` accepts `{"query":"..."}` and preserves `answer`,
+  `citations`, `request_id`, and `latency_ms`. Citations contain `document`,
+  `source`, `chunk`, and an excerpt that must occur in the indexed chunk.
+  Additive fields report `grounded`, `abstained`, and the provider.
+- `POST /rebuild-index` is the canonical rebuild endpoint. The legacy
+  `POST /index` alias remains available but is not advertised in OpenAPI.
+  Both require `X-Admin-Token`, checked against the environment variable named
+  by `admin_token_env` (default `WGLR_ADMIN_TOKEN`). There is no default token;
+  the token is never logged or stored in the index.
+
+Example rebuild:
+
 ```bash
-python scripts/reprocess_data.py
+export WGLR_ADMIN_TOKEN='set-this-only-in-your-server-environment'
+curl -s -X POST http://127.0.0.1:8000/rebuild-index \
+  -H "X-Admin-Token: $WGLR_ADMIN_TOKEN"
 ```
 
-### Initialize index structure
+The local vector store is a deterministic hashed TF-IDF cosine index. It keeps
+the original `FaissRetrieval` module/class boundary without requiring a remote
+embedding service or heavyweight model download. The provider abstraction
+defaults to the key-free extractive provider; no real OpenAI, Anthropic, or
+Ollama provider is configured in v0.1.0.
+
+## Development and checks
+
 ```bash
-python scripts/build_index.py
+uv sync --group dev
+uv run ruff check .
+uv run mypy api config llm parsers retrieval scripts validators
+uv run pytest -q
+uv run pip-audit
+uv run detect-secrets scan --all-files \
+  --exclude-files '(^|/)(\.venv|data/index|\.mypy_cache|\.pytest_cache|\.ruff_cache)(/|$)' \
+  --exclude-files '\.(png|jpg|jpeg|gif)$' \
+  --exclude-files 'uv\.lock$'
+uv build --wheel
 ```
 
-Both scripts validate configuration & logging pipelines and set up the environment for future
-embedding + retrieval logic.
+CI runs the same lint, type-check, tests, dependency audit, and secret scan,
+then verifies wheel contents and performs a clean-venv HTTP E2E: build the
+packaged fixture index in an empty directory, start `winter-garden-serve`, and
+prove `/health` plus a grounded `/query`. The index is intentionally rebuilt
+from the fixture rather than depending on machine-specific paths.
 
----
+## Provenance and license
 
-## 8. Current Status (MVP Reality)
-
-This repository is in **Phase 1, Architectural Scaffolding**.
-
-Functional components intentionally remain unimplemented:
-
-| Subsystem        | Current Behavior |
-|------------------|------------------|
-| Retrieval        | Returns empty lists |
-| Parsers          | No PDF/HTML extraction |
-| LLM generation   | Returns placeholder strings |
-| Grounding        | Always passes |
-| Index building   | No embeddings or FAISS index |
-
-This design ensures the project is safe for public portfolio use while highlighting real engineering practices.
-
----
-
-## 9. Roadmap (Production Path)
-
-This MVP is structured so each subsystem can be expanded independently.  
-Below is the planned evolution path for turning this architecture into a fully functional legal RAG backend.
-
-### Document Ingestion
-- Implement PDF text extraction (pdfplumber / PyPDF2)
-- Add HTML parsing (BeautifulSoup)
-- Introduce text chunking with size + overlap control
-
-### Retrieval Layer
-- Generate embeddings using sentence-transformers
-- Build FAISS index for dense retrieval
-- Implement BM25 for sparse retrieval
-- Add hybrid fusion (RRF, weighted / score-based ranking)
-
-### LLM Integration
-- Connect LLMClient to OpenAI / Anthropic / local models
-- Create RAG-oriented prompt templates
-- Produce answers with citation mapping
-
-### Validation Layer
-- Implement citation grounding checks
-- Add confidence scoring
-- Introduce hallucination detection
-
-### Observability + Testing
-- Extend API + retrieval telemetry
-- Add metrics (latency, index hit ratios)
-- Implement integration + stress tests
-- Expand automated QA coverage
-
----
-
-## 10. Screenshots (MVP Runtime Preview)
-
-These screenshots illustrate the MVP running locally with a functioning FastAPI service.
-
-### 10.1 API Server Running
-![API server running](images/server_running.png)
-
-### 10.2 Health Endpoint Response (cURL)
-![Health check response](images/01_health_check_curl.png)
-
-### 10.3 Directory Structure (Project Tree)
-![Project directory tree](images/02_project_tree_structure.png)
-
-### 10.4 Uvicorn Server Running (Startup Logs)
-![Uvicorn server running](images/03_uvicorn_server_running.png)
-
-These visuals confirm the operational backbone of the system  
-(routing, logging, environment setup, and server initialization).
-
----
-
-## 11. License
-
-MIT License 
-
-Copyright (c) 2025 Cesar Augusto
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Cesar Augusto
-AI Systems Engineer, Mycellium Lab
+The application code is MIT-licensed. `data/fixtures/sample_ordinance.html` is
+original synthetic training text dedicated to the public domain under CC0 1.0;
+see [`data/fixtures/PROVENANCE.md`](data/fixtures/PROVENANCE.md). No municipal
+PDF or municipal-derived chunk is redistributed. Operators are responsible for
+the license and authorization of every source they index.

@@ -1,26 +1,33 @@
-# Data paths
-data_path: "./data/raw_pdfs/"
+version: "0.1.0"
+
+# Sources are operator-provided or the original CC0 fixture.  No municipal PDF
+# is distributed with this repository.
+data_path: "./data/fixtures/"
 processed_path: "./data/processed/"
 index_path: "./data/index/"
 
-# Index configurations
+# These names remain for callers of the original scaffold; the builder places
+# both files below index_path and validates their manifest together.
 faiss_index_path: "./data/index/faiss/"
 bm25_index_path: "./data/index/bm25/"
-chroma_db_path: "./data/chroma_db/"
 
-# Model configuration
-embedding_model_name: "all-MiniLM-L6-v2"
-llm_model_name: "gpt-4o-mini"
-temperature: 0.1
+# Local provider configuration.  A remote provider is not configured in v0.1.0.
+embedding_model_name: "local-hash-384"
+provider: "extractive"
+llm_model_name: "local-extractive"
+temperature: 0.0
 
-# Retrieval configuration
+# Retrieval and parser limits
 top_k: 5
-chunk_size: 500
-chunk_overlap: 50
+chunk_size: 800
+chunk_overlap: 120
+max_file_bytes: 5000000
+max_pages: 100
+max_text_chars: 1000000
 
 # API configuration
 port: 8000
-host: "0.0.0.0"
+host: "127.0.0.1"
+admin_token_env: "WGLR_ADMIN_TOKEN"
 
-# Logging
 log_level: "INFO"

@@ -1,0 +1,1 @@
+"""Bundled, redistributable fixture package."""

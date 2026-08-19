@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "agent/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.15"
+      - run: uv sync --locked --group dev
+      - run: uv run ruff check .
+      - run: uv run mypy api config llm parsers retrieval scripts validators
+      - run: uv run pytest -q
+      - run: uv run pip-audit
+      - run: >-
+          uv run detect-secrets scan --all-files
+          --exclude-files '(^|/)(\.venv|data/index|\.mypy_cache|\.pytest_cache|\.ruff_cache)(/|$)'
+          --exclude-files '\.(png|jpg|jpeg|gif)$'
+          --exclude-files 'uv\.lock$'
+      - run: uv build --wheel
+      - name: Verify wheel contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with ZipFile(wheel) as archive:
+              names = archive.namelist()
+          required = {
+              "config/config.yaml",
+              "data/fixtures/sample_ordinance.html",
+              "data/fixtures/PROVENANCE.md",
+              "scripts/build_index.py",
+              "api/cli.py",
+          }
+          missing = required.difference(names)
+          assert not missing, f"missing wheel members: {sorted(missing)}"
+          forbidden = [
+              name
+              for name in names
+              if name.lower().endswith(".pdf")
+              or "chunks_final" in name
+              or name.startswith("data/index/")
+          ]
+          assert not forbidden, f"forbidden wheel members: {forbidden}"
+          print(f"verified {wheel.name}: {len(names)} members")
+          PY
+      - name: Clean wheel install and HTTP E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          E2E_ROOT="$(mktemp -d)"
+          uv venv --python 3.11 "$E2E_ROOT/venv"
+          uv pip install --python "$E2E_ROOT/venv/bin/python" dist/*.whl
+          cd "$E2E_ROOT"
+          "$E2E_ROOT/venv/bin/winter-garden-build-index"
+          test -f "$E2E_ROOT/data/index/manifest.json"
+
+          PORT=18765
+          "$E2E_ROOT/venv/bin/winter-garden-serve" \
+            --host 127.0.0.1 --port "$PORT" > "$E2E_ROOT/server.log" 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+            wait "$SERVER_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > "$E2E_ROOT/health.json"; then
+              break
+            fi
+            sleep 1
+          done
+          test -s "$E2E_ROOT/health.json" || {
+            cat "$E2E_ROOT/server.log"
+            exit 1
+          }
+          curl -fsS "http://127.0.0.1:$PORT/query" \
+            -H 'content-type: application/json' \
+            -d '{"query":"What are the public counter hours for a permit application?"}' \
+            > "$E2E_ROOT/query.json"
+          "$E2E_ROOT/venv/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+
+          assert json.loads(Path("health.json").read_text()) == {"status": "ok"}
+          query = json.loads(Path("query.json").read_text())
+          assert query["grounded"] is True
+          assert query["citations"]
+          print("clean wheel install E2E passed")
+          PY
