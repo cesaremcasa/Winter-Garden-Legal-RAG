@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -109,3 +110,38 @@ def test_index_rebuild_is_idempotent_and_detects_corruption(tmp_path: Path):
     bm25.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(IndexCorruptionError):
         IndexManager(index)
+
+
+def test_index_publish_failure_restores_previous_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    (sources / "fixture.html").write_text(
+        "<html><body><p>Permit applications require a written receipt.</p></body></html>",
+        encoding="utf-8",
+    )
+    index = tmp_path / "index"
+    builder = IndexBuilder(sources, index)
+    builder.build()
+    old_manifest = (index / "manifest.json").read_bytes()
+    assert IndexManager(index).retrieve("written receipt")
+
+    real_replace = os.replace
+    replace_calls = 0
+
+    def fail_second_replace(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> None:
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise OSError("injected publish failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr("retrieval.index_manager.os.replace", fail_second_replace)
+    with pytest.raises(OSError, match="injected publish failure"):
+        builder.build()
+
+    assert replace_calls == 3  # move old -> backup, fail publish, restore backup
+    assert (index / "manifest.json").read_bytes() == old_manifest
+    assert IndexManager(index).retrieve("written receipt")
+    assert not list(index.parent.glob(f".{index.name}-*"))

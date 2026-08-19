@@ -160,7 +160,12 @@ class IndexBuilder:
                 if backup.exists():
                     shutil.rmtree(backup)
                 os.replace(self.index_path, backup)
-            os.replace(temporary, self.index_path)
+            try:
+                os.replace(temporary, self.index_path)
+            except Exception:
+                if backup and backup.exists() and not self.index_path.exists():
+                    os.replace(backup, self.index_path)
+                raise
             temporary = Path(".")  # ownership transferred to index_path
             if backup and backup.exists():
                 shutil.rmtree(backup)
